@@ -128,7 +128,7 @@ class VeilPersonalityCore:
 
 
     def add_to_memory(self, source: str, event: str):
-        """Adds events to STM, rotating oldest to LTM if limit is reached."""
+        """Adds events to STM, puting STM in LTM if  the limit is reached."""
         memory_input = {
             "timestamp": time.time(),
             "source": source,
@@ -162,26 +162,26 @@ class VeilPersonalityCore:
             print(f"[SYSTEM ERROR] Fleeting state '{state_name}' not recognized.")
             
     def decay_fleeting_state(self, decay_rate: float = 0.1):
-        """Reduces the temporary emotional states over time."""
+        """Subside temporary emotional states with time"""
         for state in self.persona.fleeting_state:
             current_val = self.persona.fleeting_state[state]
             if current_val > 0:
                 self.persona.fleeting_state[state] = max(0.0, current_val - decay_rate)
         
     def update_moral_alignment(self, change: float):
-        """Adjusts the moral score based on the NPC's actions or influence."""
+        """Adjusts the morality score based on the NPC's actions or influence."""
         current_moral = self.persona.traits['moral_alignment']
         new_moral = max(0.0, min(1.0, current_moral + change))
         self.persona.traits['moral_alignment'] = new_moral
         print(f"[SYSTEM] Moral Alignment shifted: {current_moral:.2f} -> {new_moral:.2f} (Change: {change:+.2f})")
 
     def update_relationship(self, change: float):
-        """Adapts the NPC's specific view of the Player and triggers moral drift."""
+        """Adapts the NPC's  view of the Player and moral drift come to play"""
         current_score = self.persona.player_relationship_score
         new_score = max(-1.0, min(1.0, current_score + change))
         self.persona.player_relationship_score = new_score
         
-        # Moral Drift: If relationship drops (betrayal), increase cynicism and shift moral alignment toward ruthless (1.0)
+        # If relationship drops (betrayal), increase cynicism and shift moral alignment toward ruthless (1.0)
         if change < 0:
             self.update_trait("cynicism", abs(change) * 0.1) 
             self.update_moral_alignment(abs(change) * 0.05)
@@ -190,7 +190,7 @@ class VeilPersonalityCore:
     
     def parse_llm_response(self, raw_text: str) -> dict:
         """Parses the raw three-part output from the LLM into a structured dictionary."""
-        # Initialize with safe error values
+        
         parsed_data = { 
             "analysis": "Error: Failed to extract Analysis. Model may not have completed the thought process.", 
             "action": {"type": "NO_ACTION", "target": "Parsing", "parameter": "Failure", "value": "N/A"}, 
@@ -202,7 +202,6 @@ class VeilPersonalityCore:
             action_start = raw_text.find("[ACTION]")
             dialogue_start = raw_text.find("[DIALOGUE]")
             
-          
             if analysis_start != -1 and action_start != -1:
                 parsed_data["analysis"] = raw_text[analysis_start + len("[ANALYSIS]"):action_start].strip()
             
@@ -264,12 +263,12 @@ class VeilPersonalityCore:
         This function simulates the Gemini API's output, allowing the core logic (memory, traits, parsing)
         to be demonstrated without relying on a live, external API connection.
         """
-        # Get current character state to influence simulated response
+        # Get the NPCstate to decide the response
         score = self.persona.player_relationship_score
         moral = self.persona.traits['moral_alignment']
         is_hostile = 'die' in full_user_prompt.lower() or 'leave' in full_user_prompt.lower() or score < -0.1
 
-        # --- Simulated Logic Based on State ---
+        
         if is_hostile:
             return f"""
 [ANALYSIS]
@@ -288,13 +287,13 @@ ISSUE_WARNING: Player; INTENSITY: Extreme
 - GOAL CHECK: The player is currently useful and cooperative. Leverage this trust to advance the primary objective.
 - MORAL/FEAR CHECK: Moral score ({moral:.2f}) is stable. No unnecessary risk required.
 - PLAYER PREDICTION: They are likely looking for reward or validation.
-- STRATEGY: Affirm alliance and request the next crucial piece of information or action related to the core goal.
+- STRATEGY: Affirm alliance and request the next piece of information or action related to the core goal.
 [ACTION]
 REQUEST_INTEL: Player; TARGET: Data_Transfer_Log
 [DIALOGUE]
-"Your loyalty has been noted. We move forward as partners. But trust is earned constantly: what is the status of the data transfer logs? I need hard intel, not promises."
+"Your loyalty has been noted. But trust is earned constantly: what is the status of the data transfer logs? I need hard intel, not promises."
 """
-        else: # Neutral or mildly skeptical
+        else: 
              return f"""
 [ANALYSIS]
 - GOAL CHECK: The player's intent is unclear; currently a low priority. Must excerise caution.
@@ -342,7 +341,7 @@ def live_interactive_shell():
     """Starts interactive command line for testing the NPC."""
     print("\n--- INITIALIZING THE VEIL ADAPTIVE AI CORE (SIMULATION MODE) ---")
     
-    # Initialize a new, complex NPC Persona
+  
     vanguard_persona = Persona(
         name="Silas",
         faction="The Shadow Syndicate",
@@ -356,8 +355,8 @@ def live_interactive_shell():
     print("START CONVERSATION. Type 'exit' to quit.")
     print("---------------------------------------------------------")
 
-    try:
-        while True:
+  
+    while True:
            
             print(f"\n[NPC STATUS] Trust={silas_npc.persona.player_relationship_score:.2f} | Moral={silas_npc.persona.traits['moral_alignment']:.2f}")
             user_input = input(">> Player: ")
@@ -385,20 +384,8 @@ def live_interactive_shell():
          
             print(f"[SYSTEM CHECK] Post-interaction Anger Decay: {silas_npc.persona.fleeting_state['anger']:.2f}")
 
-    except EOFError:
-        print("\nInput stream ended. Shutting down.")
-    except Exception as e:
-    
-        print(f"\n[CRITICAL ERROR] Application failed: {e}")
+
         
 if __name__ == '__main__':
-  
-    try:
-        import requests
-    except ImportError:
-        print("\n--- CRITICAL ERROR ---")
-        print("The 'requests' library is not installed.")
-        print("Please run: pip install requests")
-        sys.exit(1)
-        
+          
     live_interactive_shell()

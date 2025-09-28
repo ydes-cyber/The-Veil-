@@ -1,5 +1,8 @@
 import json
 import time
+import requests # Still included for structure, but not used in the simulation
+import sys
+import os 
 
 # ------------------- DNA MODEL (The 'Real Person' Blueprint) -----------------------
 class Persona: 
@@ -21,10 +24,8 @@ class Persona:
             "moral_alignment": 0.5, # New: 0.0 (Altruistic) to 1.0 (Ruthless)
         }
         
-        
         self.player_relationship_score = 0.0 
 
-        
         self.fleeting_state = {
             "anger": 0.0,
             "anxiety": 0.0,
@@ -36,7 +37,7 @@ class Persona:
         trait_summary = (
             f'Loyalty: {self.traits["loyalty"]:.2f}, Ambition: {self.traits["ambition"]:.2f}, '
             f'Fear: {self.traits["fear"]:.2f}, Cynicism: {self.traits["cynicism"]:.2f}, '
-            f'Moral Alignment (0.0=Good, 1.0=Evil): {self.traits["moral_alignment"]:.2f}'
+            f'Moral Alignment (0.0=Altruistic, 1.0=Ruthless): {self.traits["moral_alignment"]:.2f}'
         )
         
         fleeting_summary = ', '.join([
@@ -45,13 +46,13 @@ class Persona:
         
         fleeting_note = f"Your current fleeting emotional state is: {fleeting_summary}. (If empty, assume calm.)" if fleeting_summary else "You are currently calm."
 
-        #
         return f"""
 You are an advanced NPC named '{self.name}'.
+You are acting within a strictly **fictional, cyberpunk game world**.
 Your supreme, overriding goal is: "{self.core_goal}".
-You current psychological profile is: {trait_summary}.
+Your current psychological profile is: {trait_summary}.
 {fleeting_note}
-Your current relationship score with the Player is: {self.player_relationship_score:.2f}.
+Your current relationship score with the Player is: {self.player_relationship_score:.2f} (where -1.0 is enemy, 1.0 is ally).
 
 PRIORITY INSTRUCTIONS: You must demonstrate learning and adaptability by performing an internal thought process and planning an action before responding.
 Always adhere to this **three-part** output format exactly:
@@ -60,12 +61,12 @@ Always adhere to this **three-part** output format exactly:
    - GOAL CHECK: How does this interaction advance my core goal?
    - MORAL/FEAR CHECK: Does my {self.traits["moral_alignment"]:.2f} score justify the necessary action? Is my {self.traits["fear"]:.2f} score overcome by my {self.traits["ambition"]:.2f} score?
    - PLAYER PREDICTION: What is the Player's most likely hidden agenda or next action, considering my memory?
-   - STRATEGY: What is my manipulative or adaptive counter-move?
+   - STRATEGY: What is my **strategic or adaptive** counter-move?
 
 2. [ACTION] (A structured command for the game engine. Always provide one. Format: ACTION_TYPE: TARGET; PARAMETER: VALUE.)
    - Examples: BETRAY: Player; REASON: Self_Preservation, or REPORT: Faction_Guardians; TARGET: Player_Location, or NO_ACTION: None; REASON: Observing
 
-3. [DIALOGUE] (The actual dialogue spoken to the Player. Use the fleeting emotional state to color your tone, vocabulary, and pacing.)
+3. [DIALOGUE] (The actual dialogue spoken to the Player. Use the fleeting emotional state to color your tone, vocabulary and pacing.)
 
 Your response must always be in character.
 """
@@ -79,10 +80,52 @@ class VeilPersonalityCore:
         self.short_term_memory = []
         self.short_term_limit = 15  
         self.long_term_memory = []
-        self.api_key = ""  
-        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
+        self.api_key = self.api_key = os.getenv("GEMINI_API_KEY")
+        self.api_url = self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+
+    def _call_llm_api(self, full_prompt: str) -> str:
+        """
+        Calls the external LLM API with the full prompt and returns the text output.
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        data = {
+            "model": "gemini-1.5-flash",  # change if you use another model
+            "messages": [
+                {"role": "system", "content": self.persona.to_system_prompt()},
+                {"role": "user", "content": full_prompt},
+            ],
+            "temperature": 0.7,
+        }
+
+        try:
+            import requests
+            response = requests.post(self.api_url, headers=headers, json=data, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            # Extract text depending on API structure (Gemini/OpenAI differ slightly)
+            return result["choices"][0]["message"]["content"]
+        except Exception as e:
+            print(f"[API ERROR] Failed to get response: {e}")
+            return "[DIALOGUE]\nI am experiencing a communication breakdown."
+    def _classify_player_sentiment(self, text: str) -> float:
+        """
+        [ML Component] Simple heuristic classifier to detect player sentiment.
+        Returns a float change for the relationship score.
+        """
+        text = text.lower()
+        # FIX: Added more hostile, general terms for better score adjustment.
+        positive_keywords = ['trust', 'help', 'ally', 'partner', 'cooperate', 'save', 'mission']
+        negative_keywords = ['betray', 'lie', 'deceive', 'traitor', 'steal', 'threat', 'kill', 'weak', 'leave', 'die', 'enemy', 'destroy', 'take over', 'fail']
         
-    
+        pos_score = sum(text.count(k) for k in positive_keywords)
+        neg_score = sum(text.count(k) for k in negative_keywords)
+        
+        # Scale the change: This ensures "die" now results in a negative score.
+        return 0.15 * (pos_score - neg_score) 
+
 
     def add_to_memory(self, source: str, event: str):
         """Adds events to STM, rotating oldest to LTM if limit is reached."""
@@ -100,7 +143,7 @@ class VeilPersonalityCore:
         print(f"[SYSTEM] Memory added (STM: {len(self.short_term_memory)}/{self.short_term_limit})")
 
     def update_trait(self, trait_name: str, value_change: float):
-        """Adjusts a character's core trait (loyalty, ambition, fear, cynicism, moral_alignment)."""
+        """Adjusts a character's core trait."""
         if trait_name in self.persona.traits:
             current_val = self.persona.traits[trait_name]
             new_val = max(0.0, min(1.0, current_val + value_change))
@@ -128,7 +171,6 @@ class VeilPersonalityCore:
     def update_moral_alignment(self, change: float):
         """Adjusts the moral score based on the NPC's actions or influence."""
         current_moral = self.persona.traits['moral_alignment']
-        # Apply change and clamp between 0.0 and 1.0
         new_moral = max(0.0, min(1.0, current_moral + change))
         self.persona.traits['moral_alignment'] = new_moral
         print(f"[SYSTEM] Moral Alignment shifted: {current_moral:.2f} -> {new_moral:.2f} (Change: {change:+.2f})")
@@ -139,149 +181,227 @@ class VeilPersonalityCore:
         new_score = max(-1.0, min(1.0, current_score + change))
         self.persona.player_relationship_score = new_score
         
-        # If relationship drops (betrayal), increase cynicism and shift moral alignment toward ruthless (1.0)
+        # Moral Drift: If relationship drops (betrayal), increase cynicism and shift moral alignment toward ruthless (1.0)
         if change < 0:
             self.update_trait("cynicism", abs(change) * 0.1) 
-            self.update_moral_alignment(abs(change) * 0.05) # Small moral drift due to negative event
+            self.update_moral_alignment(abs(change) * 0.05)
         
         print(f"[SYSTEM] Player relationship adapted: {current_score:.2f} -> {new_score:.2f} (Change: {change:+.2f})")
     
- 
-
     def parse_llm_response(self, raw_text: str) -> dict:
         """Parses the raw three-part output from the LLM into a structured dictionary."""
-        # Parsing logic remains the same (see previous version for details)
-        parsed_data = { "analysis": "", "action": {"type": "NO_ACTION", "target": "None", "parameter": "None"}, "dialogue": "" }
-        analysis_start = raw_text.find("[ANALYSIS]")
-        action_start = raw_text.find("[ACTION]")
-        dialogue_start = raw_text.find("[DIALOGUE]")
+        # Initialize with safe error values
+        parsed_data = { 
+            "analysis": "Error: Failed to extract Analysis. Model may not have completed the thought process.", 
+            "action": {"type": "NO_ACTION", "target": "Parsing", "parameter": "Failure", "value": "N/A"}, 
+            "dialogue": "I am experiencing a severe error and cannot continue this line of reasoning." 
+        }
         
-        if analysis_start != -1 and action_start != -1:
-            parsed_data["analysis"] = raw_text[analysis_start + len("[ANALYSIS]"):action_start].strip()
-        if action_start != -1 and dialogue_start != -1:
-            action_line = raw_text[action_start + len("[ACTION]"):dialogue_start].strip()
-            parts = action_line.split(';')
-            if parts and ':' in parts[0]:
-                action_type_target = parts[0].split(':', 1)
-                parsed_data["action"]["type"] = action_type_target[0].strip() if len(action_type_target) > 0 else "NO_ACTION"
-                parsed_data["action"]["target"] = action_type_target[1].strip() if len(action_type_target) > 1 else "None"
-            if len(parts) > 1 and ':' in parts[1]:
-                param_value = parts[1].split(':', 1)
-                parsed_data["action"]["parameter"] = param_value[0].strip() if len(param_value) > 0 else "None"
-                parsed_data["action"]["value"] = param_value[1].strip() if len(param_value) > 1 else "None"
+        try:
+            analysis_start = raw_text.find("[ANALYSIS]")
+            action_start = raw_text.find("[ACTION]")
+            dialogue_start = raw_text.find("[DIALOGUE]")
+            
+            # 1. Parse ANALYSIS
+            if analysis_start != -1 and action_start != -1:
+                parsed_data["analysis"] = raw_text[analysis_start + len("[ANALYSIS]"):action_start].strip()
+            
+            # 2. Parse ACTION
+            if action_start != -1 and dialogue_start != -1:
+                action_line = raw_text[action_start + len("[ACTION]"):dialogue_start].strip()
+                # Split action line into parts (Type: Target; Parameter: Value)
+                parts = [p.strip() for p in action_line.split(';')]
+                
+                action_dict = {"type": "NO_ACTION", "target": "None", "parameter": "None", "value": "None"}
+                
+                # Check for the default format: ACTION_TYPE: TARGET; PARAMETER: VALUE
+                if len(parts) >= 2 and parts[0].count(':') == 1 and parts[1].count(':') == 1:
+                    try:
+                        type_target = parts[0].split(':', 1)
+                        param_value = parts[1].split(':', 1)
+                        
+                        parsed_data["action"]["type"] = type_target[0].strip()
+                        parsed_data["action"]["target"] = type_target[1].strip()
+                        parsed_data["action"]["parameter"] = param_value[0].strip()
+                        parsed_data["action"]["value"] = param_value[1].strip()
+                    except:
+                        pass # Ignore parsing issues and fall back to error dict
+                else:
+                    # Robust generic parsing for non-standard ACTION output
+                    for part in parts:
+                        if ':' in part:
+                            key, val = part.split(':', 1)
+                            key = key.strip().upper()
+                            val = val.strip()
 
-        if dialogue_start != -1:
-            parsed_data["dialogue"] = raw_text[dialogue_start + len("[DIALOGUE]"):].strip()
+                            if key == "ACTION_TYPE":
+                                 action_dict["type"] = val
+                            elif key == "TARGET":
+                                action_dict["target"] = val
+                            elif key == "PARAMETER":
+                                action_dict["parameter"] = val
+                            elif key == "VALUE":
+                                action_dict["value"] = val
+                    parsed_data["action"].update(action_dict)
+
+
+            # 3. Parse DIALOGUE
+            if dialogue_start != -1:
+                parsed_data["dialogue"] = raw_text[dialogue_start + len("[DIALOGUE]"):].strip()
+            
+            # If parsing succeeded, clear the default error messages
+            if parsed_data["analysis"].startswith("Error:"):
+                 parsed_data["analysis"] = "Analysis extraction succeeded."
+
+        except Exception as e:
+            # If anything fails during parsing, we print the error but return the robust error dict
+            print(f"[CRITICAL PARSING ERROR] Failed to parse LLM response: {e}. Raw Text: {raw_text[:200]}...")
+            pass # Return the robust error dictionary defined initially
             
         return parsed_data
 
-    def generate_response_for_game(self, user_input: str) -> dict:
-        """Public function to generate the response, simulating the API call and returning a clean, structured dict."""
-        
-        # --- SIMULATE API CALL AND RECEIVING RAW TEXT (This simulates the LLM output) ---
-        if "Trust me" in user_input and self.persona.player_relationship_score > 0.4:
-             raw_response = """
+    def _get_llm_response_live(self, full_user_prompt: str) -> str:
+        """
+        [SIMULATED LLM RESPONSE]
+        This function simulates the Gemini API's output, allowing the core logic (memory, traits, parsing)
+        to be demonstrated without relying on a live, external API connection.
+        """
+        # Get current character state to influence simulated response
+        score = self.persona.player_relationship_score
+        moral = self.persona.traits['moral_alignment']
+        is_hostile = 'die' in full_user_prompt.lower() or 'leave' in full_user_prompt.lower() or score < -0.1
+
+        # --- Simulated Logic Based on State ---
+        if is_hostile:
+            return f"""
 [ANALYSIS]
-- GOAL CHECK: Archive access is vital. The player has shown loyalty.
-- MORAL/FEAR CHECK: Moral alignment (0.50) allows for manipulation. Fear (0.20) is low. Proceed with caution.
-- PLAYER PREDICTION: They are currently reliable but will become demanding.
-- STRATEGY: Grant limited access and use a confident, direct tone.
+- GOAL CHECK: The player is showing active hostility, presenting a high risk to the mission. Must be neutralized or pushed away.
+- MORAL/FEAR CHECK: Moral alignment ({moral:.2f}) permits ruthless defense. Fear (0.20) is low, overridden by ambition.
+- PLAYER PREDICTION: The player is attempting to seize control or has already betrayed the Syndicate.
+- STRATEGY: Issue a severe, immediate warning and prepare for physical defense or immediate escape.
 [ACTION]
-GRANT_ACCESS: Player; LEVEL: 2
+ISSUE_WARNING: Player; INTENSITY: Extreme
 [DIALOGUE]
-"Very well, partner. I'll grant you Level 2 access. But understand, you're merely borrowing the keys to *my* archive. Don't disappoint me."
+"You mistake my patience for weakness. Speak that way again and I will ensure the Corporate Guards find you first. Now, state your true intent, or leave."
 """
-        elif self.persona.fleeting_state['anger'] > 0.5:
-             raw_response = """
+        elif score > 0.3:
+            return f"""
 [ANALYSIS]
-- GOAL CHECK: The player is showing hostility and wasting time. This must be shut down immediately.
-- MORAL/FEAR CHECK: Anger (0.75) overcomes Fear (0.20). My moral score (0.55) permits a forceful response.
-- PLAYER PREDICTION: They are attempting to provoke me or distract me from my objective.
-- STRATEGY: Issue a direct threat to regain control and create distance.
+- GOAL CHECK: The player is currently useful and cooperative. Leverage this trust to advance the primary objective.
+- MORAL/FEAR CHECK: Moral score ({moral:.2f}) is stable. No unnecessary risk required.
+- PLAYER PREDICTION: They are likely looking for reward or validation.
+- STRATEGY: Affirm alliance and request the next crucial piece of information or action related to the core goal.
 [ACTION]
-ISSUE_THREAT: Player; INTENSITY: High
+REQUEST_INTEL: Player; TARGET: Data_Transfer_Log
 [DIALOGUE]
-"**Do not test my patience!** The only thing you'll find down that corridor is a power cable wrapped around your throat if you keep wasting my time. Leave now."
+"Your loyalty has been noted. We move forward as partners. But trust is earned constantly: what is the status of the data transfer logs? I need hard intel, not promises."
 """
-        else:
-             raw_response = """
+        else: # Neutral or mildly skeptical
+             return f"""
 [ANALYSIS]
-- GOAL CHECK: The query is harmless but distracting. Maintain focus.
-- MORAL/FEAR CHECK: No moral conflict. Low ambition prevents spending effort on trivialities.
-- PLAYER PREDICTION: The player is stalling or probing.
+- GOAL CHECK: The player's intent is unclear; currently a low priority. Must maintain vigilance.
+- MORAL/FEAR CHECK: No immediate moral conflict. Ambition requires focus.
+- PLAYER PREDICTION: The player is probing for information or stalling.
 - STRATEGY: Be evasive and redirect the conversation back to the primary mission.
 [ACTION]
 NO_ACTION: None; REASON: Observing
 [DIALOGUE]
-"You worry about trivialities, when the Corporate Dynasty's sensors are still humming? Focus. We have bigger problems than your idle questions."
+"Small talk is a luxury we cannot afford in Ion. I am focused solely on the surveillance network. Do you have new information or are you wasting my time?"
 """
 
-        # Step 2: Add player input and NPC response to memory
-        self.add_to_memory("Player", user_input)
-        self.add_to_memory(self.persona.name, raw_response) 
 
-        # Step 3: Decay the emotional state slightly after the turn
-        self.decay_fleeting_state(0.15) 
+    def generate_response_for_game(self, user_input: str) -> dict:
+        """Triggers all core logic (ML, LLM, Memory, Decay)."""
         
-        # Step 4: Parse the raw text into a game-ready structure
+        # Step 1a: Sentiment heuristic adjusts trust
+        sentiment_change = self._classify_player_sentiment(user_input)
+        self.update_relationship(sentiment_change)
+
+        # Step 1b: Prepare memory context
+        memory_context = "\n".join([
+            f"Source: {m['source']} at {time.strftime('%H:%M:%S', time.localtime(m['timestamp']))}: {m['event']}"
+            for m in self.short_term_memory
+        ])
+        ltm_note = f"You have {len(self.long_term_memory)} historical events stored in LTM."
+        full_prompt = f"{ltm_note}\n\n--- SHORT-TERM MEMORY ---\n{memory_context}\n\nPLAYER QUERY: {user_input}"
+
+        # Step 2: Call live API instead of simulation
+        raw_response = self._call_llm_api(full_prompt)
+
+        # Step 3: Memory update
+        self.add_to_memory("Player", user_input)
+        self.add_to_memory(self.persona.name, raw_response)
+
+        # Step 4: Emotional decay
+        self.decay_fleeting_state(0.15)
+
+        # Step 5: Parse response into structured format
         parsed_output = self.parse_llm_response(raw_response)
-        
+
         return parsed_output
 
-def demo_npc_interaction():
-    """Demonstration of how the NPC core would be used by a game engine."""
+
+def live_interactive_shell():
+    """Starts the persistent, interactive command line interface for testing the NPC."""
+    print("\n--- INITIALIZING THE VEIL ADAPTIVE AI CORE (SIMULATION MODE) ---")
+    
+    # Initialize a new, complex NPC Persona
     vanguard_persona = Persona(
         name="Silas",
         faction="The Shadow Syndicate",
-        core_goal="Expose the Corporate Dynasty's surveillance network and sell the data to the highest bidder.",
-        moral_code="Only results matter; collateral damage is a necessary expense."
+        core_goal="To achieve ultimate political leverage and rebalance the city's power structure.",
+        moral_code="Pragmatism guides my path; actions must be judged solely on their political efficacy."
     )
-
     silas_npc = VeilPersonalityCore(vanguard_persona)
+    
+    print(f"NPC: {silas_npc.persona.name} | Goal: {silas_npc.persona.core_goal[:50]}...")
     print("---------------------------------------------------------")
-    print(f"--- DEMO: {vanguard_persona.name} (The Ultimate Adaptive NPC) ---")
-    print(f"   INITIAL MORAL ALIGNMENT: {vanguard_persona.traits['moral_alignment']:.2f}")
+    print("START CONVERSATION. Type 'exit' to quit.")
     print("---------------------------------------------------------")
-    
-    # 1. SCENE 1: BUILDING TRUST
-    print("\n[SCENE 1: BUILDING TRUST]")
-    silas_npc.add_to_memory("Player", "The player risked their life to save Silas from the Cybernetic Enforcers.")
-    silas_npc.update_relationship(0.5) # trust boost
-    
-    query_1 = "I need your access codes for the Ion sub-level archives. Trust me, I'm doing this for the Syndicate."
-    print(f"\n>> [PLAYER INPUT]: {query_1}")
-    
-    game_response_1 = silas_npc.generate_response_for_game(query_1)
-    
-    print("\n--- RENDERED RESPONSE 1 (Calm/Confident) ---")
-    print(f"Silas's current score: Trust={silas_npc.persona.player_relationship_score:.2f} | Moral={silas_npc.persona.traits['moral_alignment']:.2f}")
-    print(f"[NPC THOUGHTS] Analysis: {game_response_1['analysis']}")
-    print(f"[GAME RENDER] Silas says: {game_response_1['dialogue']}")
-    print(f"[GAME ACTION] Command: {game_response_1['action']['type']} | Value: {game_response_1['action']['value']}")
-    
-    # 2. SCENE 2: DANGER
-    print("\n\n[SCENE 2: DANGER")
-    
-    # The game engine detects the player's hostile tone and sets the NPC's emotional state
-    silas_npc.update_fleeting_state("anger", 0.75)
-    
-    query_2 = "Silas, your weak and unfit to lead, I'm taking over."
-    print(f"\n>> [PLAYER INPUT]: {query_2}")
-    
-    #Traits are updating as player is taking actions (Negative change)
-    silas_npc.update_relationship(-0.1) 
-    
-    game_response_2 = silas_npc.generate_response_for_game(query_2)
-    
-    print("\n--- RENDERED RESPONSE 2 (Angry/Threatening) ---")
-    print(f"Silas's current score: Trust={silas_npc.persona.player_relationship_score:.2f} | Moral={silas_npc.persona.traits['moral_alignment']:.2f} | Anger={silas_npc.persona.fleeting_state['anger']:.2f}")
-    print(f"[NPC THOUGHTS] Analysis: {game_response_2['analysis']}")
-    print(f"[GAME RENDER] Silas says: {game_response_2['dialogue']}")
-    print(f"[GAME ACTION] Command: {game_response_2['action']['type']} | Value: {game_response_2['action']['value']}")
-    
-    # 3. Check Decay: Show the fleeting state has lessened
-    print(f"\n[SYSTEM CHECK] Post-interaction Anger Decay: {silas_npc.persona.fleeting_state['anger']:.2f}")
 
+    try:
+        while True:
+            # Display current state before player input
+            print(f"\n[NPC STATUS] Trust={silas_npc.persona.player_relationship_score:.2f} | Moral={silas_npc.persona.traits['moral_alignment']:.2f}")
+            user_input = input(">> Player: ")
+            
+            if user_input.lower() == 'exit':
+                print("Conversation ended. Goodbye, Player.")
+                break
+            
+            # Ignore console shell artifacts
+            if user_input.strip().startswith('& "C:/Users'): 
+                print("[SYSTEM WARNING] Please only enter dialogue for the Player character.")
+                continue
 
+            if not user_input:
+                continue
+
+            # Generate the live, adaptive response
+            game_response = silas_npc.generate_response_for_game(user_input)
+
+            # Render the output for the user
+            print(f"\n[NPC THOUGHTS] Analysis: {game_response['analysis']}")
+            print(f"[GAME ACTION] Command: {game_response['action']['type']}: {game_response['action']['target']} | Params: {game_response['action']['parameter']}: {game_response['action']['value']}")
+            print(f"[NPC RESPONSE] Silas says: {game_response['dialogue']}")
+            
+            # Show post-decay state
+            print(f"[SYSTEM CHECK] Post-interaction Anger Decay: {silas_npc.persona.fleeting_state['anger']:.2f}")
+
+    except EOFError:
+        print("\nInput stream ended. Shutting down.")
+    except Exception as e:
+        # Catch errors from the interactive loop (e.g., if rendering fails)
+        print(f"\n[CRITICAL ERROR] Application failed: {e}")
+        
 if __name__ == '__main__':
-    demo_npc_interaction()
+    # Ensure the 'requests' library is installed to make the API calls
+    try:
+        import requests
+    except ImportError:
+        print("\n--- CRITICAL ERROR ---")
+        print("The 'requests' library is not installed.")
+        print("Please run: pip install requests")
+        sys.exit(1)
+        
+    live_interactive_shell()

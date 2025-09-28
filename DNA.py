@@ -1,14 +1,14 @@
 import json
 import time
-import requests # Still included for structure, but not used in the simulation
+import requests 
 import sys
 import os 
 
-# ------------------- DNA MODEL (The 'Real Person' Blueprint) -----------------------
+#  DNA MODEL (The 'Real Person' Blueprint)
 class Persona: 
     """
-    Defines the core identity, goals, and complex, evolving psychological state
-    of the Adaptable AI NPC, including Fleeting Emotions and Moral Drift.
+    Defines the core identity, goals, and evolving psychological state
+    of  NPC, including Fleeting Emotions and Moral Drift.
     """
     def __init__(self, name: str, faction: str, core_goal: str, moral_code: str):
         self.name = name
@@ -33,7 +33,7 @@ class Persona:
         }
 
     def to_system_prompt(self):
-        """Converts the persona attributes to a system prompt format for AI models."""
+        """Converts the persona attributes to prompt for AI."""
         trait_summary = (
             f'Loyalty: {self.traits["loyalty"]:.2f}, Ambition: {self.traits["ambition"]:.2f}, '
             f'Fear: {self.traits["fear"]:.2f}, Cynicism: {self.traits["cynicism"]:.2f}, '
@@ -66,13 +66,13 @@ Always adhere to this **three-part** output format exactly:
 2. [ACTION] (A structured command for the game engine. Always provide one. Format: ACTION_TYPE: TARGET; PARAMETER: VALUE.)
    - Examples: BETRAY: Player; REASON: Self_Preservation, or REPORT: Faction_Guardians; TARGET: Player_Location, or NO_ACTION: None; REASON: Observing
 
-3. [DIALOGUE] (The actual dialogue spoken to the Player. Use the fleeting emotional state to color your tone, vocabulary and pacing.)
+3. [DIALOGUE] (The actual dialogue spoken to the Player. Use the fleeting emotional state to decided the tone, vocabulary and pacing.)
 
 Your response must always be in character.
 """
 
 
-# ------------------- CORE ENGINE (Memory & Logic) -----------------------
+#  CORE ENGINE (Memory & Logic) 
 class VeilPersonalityCore:
     """The core engine that manages persona, memory, and LLM interactions."""
     def __init__(self, persona: Persona):
@@ -85,7 +85,7 @@ class VeilPersonalityCore:
 
     def _call_llm_api(self, full_prompt: str) -> str:
         """
-        Calls the external LLM API with the full prompt and returns the text output.
+        Calls the external LLM API with given prompt and returns the text output.
         """
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -112,8 +112,8 @@ class VeilPersonalityCore:
             return "[DIALOGUE]\nI am experiencing a communication breakdown."
     def _classify_player_sentiment(self, text: str) -> float:
         """
-        [ML Component] Simple heuristic classifier to detect player sentiment.
-        Returns a float change for the relationship score.
+        [ML Component] Simple classifier to detect player sentiment.
+        Returns a change for the relationship score.
         """
         text = text.lower()
         # FIX: Added more hostile, general terms for better score adjustment.
@@ -153,7 +153,7 @@ class VeilPersonalityCore:
             print(f"[SYSTEM ERROR] Trait '{trait_name}' not recognized.")
             
     def update_fleeting_state(self, state_name: str, value: float):
-        """Sets a temporary emotional state, useful for immediate, reactive dialogue."""
+        """Sets starting emotional state"""
         if state_name in self.persona.fleeting_state:
             new_val = max(0.0, min(1.0, value))
             self.persona.fleeting_state[state_name] = new_val
@@ -162,7 +162,7 @@ class VeilPersonalityCore:
             print(f"[SYSTEM ERROR] Fleeting state '{state_name}' not recognized.")
             
     def decay_fleeting_state(self, decay_rate: float = 0.1):
-        """Gradually reduces temporary emotional states over time."""
+        """Reduces the temporary emotional states over time."""
         for state in self.persona.fleeting_state:
             current_val = self.persona.fleeting_state[state]
             if current_val > 0:
@@ -202,19 +202,19 @@ class VeilPersonalityCore:
             action_start = raw_text.find("[ACTION]")
             dialogue_start = raw_text.find("[DIALOGUE]")
             
-            # 1. Parse ANALYSIS
+          
             if analysis_start != -1 and action_start != -1:
                 parsed_data["analysis"] = raw_text[analysis_start + len("[ANALYSIS]"):action_start].strip()
             
-            # 2. Parse ACTION
+     
             if action_start != -1 and dialogue_start != -1:
                 action_line = raw_text[action_start + len("[ACTION]"):dialogue_start].strip()
-                # Split action line into parts (Type: Target; Parameter: Value)
+              
                 parts = [p.strip() for p in action_line.split(';')]
                 
                 action_dict = {"type": "NO_ACTION", "target": "None", "parameter": "None", "value": "None"}
                 
-                # Check for the default format: ACTION_TYPE: TARGET; PARAMETER: VALUE
+               
                 if len(parts) >= 2 and parts[0].count(':') == 1 and parts[1].count(':') == 1:
                     try:
                         type_target = parts[0].split(':', 1)
@@ -225,9 +225,9 @@ class VeilPersonalityCore:
                         parsed_data["action"]["parameter"] = param_value[0].strip()
                         parsed_data["action"]["value"] = param_value[1].strip()
                     except:
-                        pass # Ignore parsing issues and fall back to error dict
+                        pass
                 else:
-                    # Robust generic parsing for non-standard ACTION output
+                    
                     for part in parts:
                         if ':' in part:
                             key, val = part.split(':', 1)
@@ -245,18 +245,16 @@ class VeilPersonalityCore:
                     parsed_data["action"].update(action_dict)
 
 
-            # 3. Parse DIALOGUE
+
             if dialogue_start != -1:
                 parsed_data["dialogue"] = raw_text[dialogue_start + len("[DIALOGUE]"):].strip()
             
-            # If parsing succeeded, clear the default error messages
             if parsed_data["analysis"].startswith("Error:"):
                  parsed_data["analysis"] = "Analysis extraction succeeded."
 
         except Exception as e:
-            # If anything fails during parsing, we print the error but return the robust error dict
             print(f"[CRITICAL PARSING ERROR] Failed to parse LLM response: {e}. Raw Text: {raw_text[:200]}...")
-            pass # Return the robust error dictionary defined initially
+            pass 
             
         return parsed_data
 
@@ -275,8 +273,8 @@ class VeilPersonalityCore:
         if is_hostile:
             return f"""
 [ANALYSIS]
-- GOAL CHECK: The player is showing active hostility, presenting a high risk to the mission. Must be neutralized or pushed away.
-- MORAL/FEAR CHECK: Moral alignment ({moral:.2f}) permits ruthless defense. Fear (0.20) is low, overridden by ambition.
+- GOAL CHECK: The player is showing hostility, it's a danger to your mission. Player must be neutralized or pushed away.
+- MORAL/FEAR CHECK: Moral alignment ({moral:.2f}) permits ruthless defense. Fear (0.20) is low, meaning that it can be overtaking by ambition.
 - PLAYER PREDICTION: The player is attempting to seize control or has already betrayed the Syndicate.
 - STRATEGY: Issue a severe, immediate warning and prepare for physical defense or immediate escape.
 [ACTION]
@@ -299,10 +297,10 @@ REQUEST_INTEL: Player; TARGET: Data_Transfer_Log
         else: # Neutral or mildly skeptical
              return f"""
 [ANALYSIS]
-- GOAL CHECK: The player's intent is unclear; currently a low priority. Must maintain vigilance.
+- GOAL CHECK: The player's intent is unclear; currently a low priority. Must excerise caution.
 - MORAL/FEAR CHECK: No immediate moral conflict. Ambition requires focus.
 - PLAYER PREDICTION: The player is probing for information or stalling.
-- STRATEGY: Be evasive and redirect the conversation back to the primary mission.
+- STRATEGY: Be evasive and redirect the conversation back to the primary goal
 [ACTION]
 NO_ACTION: None; REASON: Observing
 [DIALOGUE]
@@ -313,11 +311,11 @@ NO_ACTION: None; REASON: Observing
     def generate_response_for_game(self, user_input: str) -> dict:
         """Triggers all core logic (ML, LLM, Memory, Decay)."""
         
-        # Step 1a: Sentiment heuristic adjusts trust
+       
         sentiment_change = self._classify_player_sentiment(user_input)
         self.update_relationship(sentiment_change)
 
-        # Step 1b: Prepare memory context
+        
         memory_context = "\n".join([
             f"Source: {m['source']} at {time.strftime('%H:%M:%S', time.localtime(m['timestamp']))}: {m['event']}"
             for m in self.short_term_memory
@@ -325,32 +323,31 @@ NO_ACTION: None; REASON: Observing
         ltm_note = f"You have {len(self.long_term_memory)} historical events stored in LTM."
         full_prompt = f"{ltm_note}\n\n--- SHORT-TERM MEMORY ---\n{memory_context}\n\nPLAYER QUERY: {user_input}"
 
-        # Step 2: Call live API instead of simulation
+       
         raw_response = self._call_llm_api(full_prompt)
 
-        # Step 3: Memory update
+       
         self.add_to_memory("Player", user_input)
         self.add_to_memory(self.persona.name, raw_response)
 
-        # Step 4: Emotional decay
+       
         self.decay_fleeting_state(0.15)
 
-        # Step 5: Parse response into structured format
         parsed_output = self.parse_llm_response(raw_response)
 
         return parsed_output
 
 
 def live_interactive_shell():
-    """Starts the persistent, interactive command line interface for testing the NPC."""
+    """Starts interactive command line for testing the NPC."""
     print("\n--- INITIALIZING THE VEIL ADAPTIVE AI CORE (SIMULATION MODE) ---")
     
     # Initialize a new, complex NPC Persona
     vanguard_persona = Persona(
         name="Silas",
         faction="The Shadow Syndicate",
-        core_goal="To achieve ultimate political leverage and rebalance the city's power structure.",
-        moral_code="Pragmatism guides my path; actions must be judged solely on their political efficacy."
+        core_goal="Gain political power and leverage and rebalance the city's power structure to your favor.",
+        moral_code="Logic guides my everry decision; actions can only be judged solely on their political efficacy."
     )
     silas_npc = VeilPersonalityCore(vanguard_persona)
     
@@ -361,7 +358,7 @@ def live_interactive_shell():
 
     try:
         while True:
-            # Display current state before player input
+           
             print(f"\n[NPC STATUS] Trust={silas_npc.persona.player_relationship_score:.2f} | Moral={silas_npc.persona.traits['moral_alignment']:.2f}")
             user_input = input(">> Player: ")
             
@@ -369,7 +366,7 @@ def live_interactive_shell():
                 print("Conversation ended. Goodbye, Player.")
                 break
             
-            # Ignore console shell artifacts
+            
             if user_input.strip().startswith('& "C:/Users'): 
                 print("[SYSTEM WARNING] Please only enter dialogue for the Player character.")
                 continue
@@ -377,25 +374,25 @@ def live_interactive_shell():
             if not user_input:
                 continue
 
-            # Generate the live, adaptive response
+            
             game_response = silas_npc.generate_response_for_game(user_input)
 
-            # Render the output for the user
+          
             print(f"\n[NPC THOUGHTS] Analysis: {game_response['analysis']}")
             print(f"[GAME ACTION] Command: {game_response['action']['type']}: {game_response['action']['target']} | Params: {game_response['action']['parameter']}: {game_response['action']['value']}")
             print(f"[NPC RESPONSE] Silas says: {game_response['dialogue']}")
             
-            # Show post-decay state
+         
             print(f"[SYSTEM CHECK] Post-interaction Anger Decay: {silas_npc.persona.fleeting_state['anger']:.2f}")
 
     except EOFError:
         print("\nInput stream ended. Shutting down.")
     except Exception as e:
-        # Catch errors from the interactive loop (e.g., if rendering fails)
+    
         print(f"\n[CRITICAL ERROR] Application failed: {e}")
         
 if __name__ == '__main__':
-    # Ensure the 'requests' library is installed to make the API calls
+  
     try:
         import requests
     except ImportError:
